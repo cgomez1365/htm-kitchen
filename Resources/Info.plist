@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Hope Kitchen</string>
+  <key>CFBundleDisplayName</key><string>Hope Kitchen</string>
+  <key>CFBundleIdentifier</key><string>com.brokengearindustries.hopekitchen</string>
+  <key>CFBundleExecutable</key><string>HopeKitchen</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>CFBundleVersion</key><string>2</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSCameraUsageDescription</key><string>Hope Kitchen uses the camera to read the QR and barcode labels on products. Nothing is recorded or sent anywhere.</string>
+  <key>NSHumanReadableCopyright</key><string>Broken Gear Industries for Hope the Mission</string>
+</dict>
+</plist>
