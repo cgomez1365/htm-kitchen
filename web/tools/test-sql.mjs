@@ -206,7 +206,79 @@ check(wDir.manager?.role === 'director' && wDir.locations.length === 2 && wDir.s
 const wStray = (await one(STRAY, `select whoami() as r`)).r;
 check(!wStray.manager && !wStray.device && wStray.locations.length === 0, 'whoami: a stranger is nobody and sees nothing');
 
-console.log('\n10. Version');
+console.log('\n10. Admin screens (0007)');
+const staffCount = async () => (await one(undefined, `select count(*)::int as c from staff`)).c;
+const ivy = (await one(DIR, `select save_staff('{"display_name":"Ivy Park","role":"staff","pin":"4826"}') as id`)).id;
+check(!(await one(TAB, `select * from tablet_sign_in($1, '4826')`, [ivy])).refused, 'a person added with a PIN in one call can sign in at once');
+const before = await staffCount();
+await refuses('a bad PIN refuses the whole save', DIR, `select save_staff('{"display_name":"Half Made","role":"staff","pin":"12a"}')`);
+check(await staffCount() === before, 'no half-made person is left behind');
+await refuses('two active people cannot share a name', DIR, `select save_staff('{"display_name":"james carter","role":"staff"}')`);
+const people = (await one(DIR, `select people_list() as r`)).r;
+check(people.some((p) => p.display_name === 'Ivy Park' && p.has_pin && !p.locked), 'the Director sees who has a PIN');
+check(people.find((p) => p.id === staff1)?.locked === true, 'the Director sees who is locked out');
+await refuses('an Inventory Manager cannot list people', INV, `select people_list()`);
+await refuses('a tablet cannot list people', TAB, `select people_list()`);
+await refuses('an Inventory Manager cannot unlock a PIN', INV, `select unlock_pin($1)`, [staff1]);
+await one(DIR, `select unlock_pin($1)`, [staff1]);
+check(!(await one(TAB, `select * from tablet_sign_in($1, '2468')`, [staff1])).refused, 'after a Director unlocks, the right PIN works at once');
+for (let i = 0; i < 4; i++) await one(TAB, `select * from tablet_sign_in($1, '0000')`, [ivy]);
+await one(TAB, `select * from tablet_sign_in($1, '4826')`, [ivy]);
+await one(TAB, `select * from tablet_sign_in($1, '0000')`, [ivy]);
+check(!(await one(TAB, `select * from tablet_sign_in($1, '4826')`, [ivy])).locked, 'a right PIN clears the wrong tries before it');
+const ivyTok = (await one(TAB, `select * from tablet_sign_in($1, '4826')`, [ivy])).token;
+check(!(await move(TAB, ivyTok, saltId, MAIN, 'issue', 1)).refused, 'Ivy scans');
+await one(DIR, `select save_staff($1)`, [JSON.stringify({ id: ivy, display_name: 'Ivy Park', role: 'staff', active: false })]);
+check((await move(TAB, ivyTok, saltId, MAIN, 'issue', 1)).refused, 'switching a person off ends their tablet session at once');
+
+const tablets = (await one(DIR, `select tablet_list() as r`)).r;
+check(tablets.some((t) => t.name === 'Kitchen iPad' && t.locations.length === 1 && t.email === 'tab@x'), 'the Director sees each tablet and its locations');
+await refuses('an Inventory Manager cannot list tablets', INV, `select tablet_list()`);
+await one(DIR, `select save_device($1)`, [JSON.stringify({ id: TAB2, name: 'Walk-in iPad', locations: [MAIN] })]);
+check((await one(TAB2, `select whoami() as r`)).r.locations.map((l) => l.name).join() === 'Main kitchen', 'a location taken from a tablet disappears from it');
+check((await rows(TAB2, `select * from stock_levels where location_id = $1`, [WALK])).length === 0, '...and so does its stock');
+await one(DIR, `select save_device($1)`, [JSON.stringify({ id: TAB2, name: 'Walk-in iPad', locations: [WALK], active: false })]);
+check((await one(TAB2, `select whoami() as r`)).r.device === null, 'a switched-off tablet is nobody');
+await one(DIR, `select save_device($1)`, [JSON.stringify({ id: TAB2, name: 'Walk-in iPad', locations: [WALK] })]);
+check((await one(TAB2, `select whoami() as r`)).r.locations.map((l) => l.name).join() === 'Walk-in cooler', 'switched back on with its location back');
+await refuses('two tablets cannot share a name', DIR, `select save_device($1)`, [JSON.stringify({ id: TAB2, name: 'kitchen ipad', locations: [] })]);
+
+async function asService(fn) { await db.exec(`reset role; set role service_role;`); try { return await fn(); } finally { await db.exec(`reset role;`); } }
+const redeem = async (code) => (await asService(() => db.query(`select * from redeem_pairing($1)`, [code]))).rows[0];
+await refuses('an Inventory Manager cannot pair a tablet', INV, `select start_pairing($1)`, [TAB2]);
+const old = (await one(DIR, `select start_pairing($1) as r`, [TAB2])).r.code;
+const pair = (await one(DIR, `select start_pairing($1) as r`, [TAB2])).r;
+check(/^[A-HJ-NP-Z2-9]{8}$/.test(pair.code), 'a pairing code is 8 easy-to-read characters', pair.code);
+await refuses('a signed-in session cannot redeem a code', DIR, `select * from redeem_pairing($1)`, [pair.code]);
+await refuses('anon cannot redeem a code', null, `select * from redeem_pairing($1)`, [pair.code]);
+check(!(await redeem(old)), 'a newer code replaces the older one');
+const got = await redeem(`${pair.code.slice(0, 4).toLowerCase()}-${pair.code.slice(4)}`);
+check(got?.device_id === TAB2 && got?.email === 'tab2@x', 'the server trades the code (any case, with a dash) for the tablet sign-in');
+check(!(await redeem(pair.code)), 'a code works once');
+const late = (await one(DIR, `select start_pairing($1) as r`, [TAB2])).r.code;
+await one(undefined, `update device_pairings set expires_at = now() - interval '1 minute' where closed_at is null`);
+check(!(await redeem(late)), 'an expired code does nothing');
+check((await rows(TAB, `select * from device_pairings`).catch(() => [])).length === 0, 'nobody reads pairing codes');
+await refuses('a PIN unlock is never deleted', undefined, `delete from pin_unlocks`);
+
+const locs = (await one(DIR, `select location_list() as r`)).r;
+check(locs.find((l) => l.id === WALK)?.tablets === 1 && locs.find((l) => l.id === MAIN)?.stocked >= 1, 'locations show their stock and tablets');
+await refuses('a tablet cannot list every location', TAB, `select location_list()`);
+await refuses('two locations cannot share a name', INV, `select save_location('{"name":"walk-in COOLER"}')`);
+
+await one(INV, `select save_category('{"name":"Snacks","prefix":"snk"}')`);
+check((await one(INV, `select next_sku('Snacks') as s`)).s === 'SNK-0001', 'a new category gives SKUs from its prefix');
+await refuses('a prefix is used once', INV, `select save_category('{"name":"Drinks","prefix":"DRY"}')`);
+await refuses('a prefix is 2 to 5 letters', INV, `select save_category('{"name":"Drinks","prefix":"B1"}')`);
+await refuses('a category items use keeps its name', INV, `select save_category('{"original":"Dry Goods","name":"Pantry","prefix":"DRY"}')`);
+await one(INV, `select save_category('{"original":"Snacks","name":"Snacks","prefix":"SNX"}')`);
+check((await one(INV, `select next_sku('Snacks') as s`)).s === 'SNX-0001', 'its prefix can change');
+await refuses('a tablet cannot edit categories', TAB, `select save_category('{"name":"X","prefix":"XX"}')`);
+check((await one(INV, `select category_list() as r`)).r.find((c) => c.name === 'Dry Goods')?.items >= 2, 'categories show how many items use them');
+check((await rows(TAB, `select * from category_names() n`)).some((r) => r.n === 'Snacks'), 'a tablet sees the category names for Items');
+check((await rows(STRAY, `select * from category_names() n`)).length === 0, 'a stranger sees no categories');
+
+console.log('\n11. Version');
 check((await one(undefined, `select hk_schema_version() as v`)).v === SCHEMA_VERSION, `schema version is ${SCHEMA_VERSION}`);
 
 // The role table exists twice (has_perm in SQL, PERMS in web/src/lib/roles.ts): they must agree (FQC's LADDER trap).

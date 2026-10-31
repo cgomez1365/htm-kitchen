@@ -1,12 +1,14 @@
 'use client';
 /**
  * Two ways in (FQC R-12, adapted): a manager types their email and the 6-digit code it
- * receives; a kitchen tablet is signed in once with its own email and password by IT and
- * stays signed in. Chefs and staff never use this page - they tap their name on the tablet.
+ * receives; a kitchen tablet is paired once with the code (or QR) a Director's Admin screen
+ * shows, and stays signed in. A QR opens /login#pair=CODE: the code rides in the fragment,
+ * which the browser never sends to a server. Chefs and staff never use this page - they tap
+ * their name on the tablet.
  * Supabase: Email OTP length must be 6 (the project default is 8; FQC trap).
  */
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { browserClient } from '@/lib/supabase-browser';
 
@@ -19,6 +21,8 @@ export default function Login() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [pairCode, setPairCode] = useState('');
+  const [usePassword, setUsePassword] = useState(false);
 
   const go = async (fn: () => Promise<void>) => {
     setBusy(true); setMsg(null);
@@ -35,6 +39,19 @@ export default function Login() {
     await api.claim().catch(() => false);
     router.replace('/scan');
   });
+  const pair = (raw: string) => go(async () => {
+    const creds = await api.pair(raw);
+    const { error } = await browserClient().auth.signInWithPassword(creds);
+    if (error) throw new Error(`Paired, but signing in failed: ${error.message}`);
+    router.replace('/scan');
+  });
+  useEffect(() => {
+    const m = window.location.hash.match(/pair=([A-Za-z0-9-]+)/);
+    if (!m) return;
+    history.replaceState(null, '', window.location.pathname);
+    setMode('tablet'); setPairCode(m[1].toUpperCase().replace(/[^A-Z0-9]/g, ''));
+    pair(m[1]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const tablet = () => go(async () => {
     const { error } = await browserClient().auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw new Error('Email or password is wrong.');
@@ -55,6 +72,18 @@ export default function Login() {
         ))}
       </div>
       <div className="card space-y-3">
+        {mode === 'tablet' && !usePassword ? (
+          <>
+            <label className="block"><span className="label-sm">Pairing code from the Director&apos;s screen</span>
+              <input className="field mt-1 tnum text-center font-mono text-2xl uppercase tracking-[.2em]" autoCapitalize="characters" autoComplete="off" maxLength={9}
+                value={pairCode.length > 4 ? `${pairCode.slice(0, 4)}-${pairCode.slice(4)}` : pairCode}
+                onChange={(e) => setPairCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))} autoFocus /></label>
+            <button className="btn-primary w-full" disabled={busy || pairCode.length !== 8} onClick={() => pair(pairCode)}>{busy ? 'Pairing…' : 'Pair this tablet'}</button>
+            <p className="text-xs text-muted">A Director adds the tablet under Admin → Tablets and gets a code. Pointing this tablet&apos;s camera at the QR there does this for you.</p>
+            <button className="btn-ghost w-full text-xs" onClick={() => { setUsePassword(true); setMsg(null); }}>Use an email and password instead</button>
+            {msg && <p className="text-sm font-semibold text-out">{msg}</p>}
+          </>
+        ) : (<>
         <label className="block"><span className="label-sm">Email</span>
           <input className="field mt-1" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} disabled={sent} /></label>
         {mode === 'manager' ? (sent ? (
@@ -70,10 +99,11 @@ export default function Login() {
             <label className="block"><span className="label-sm">Tablet password</span>
               <input className="field mt-1" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
             <button className="btn-primary w-full" disabled={busy || !password} onClick={tablet}>Sign this tablet in</button>
-            <p className="text-xs text-muted">IT does this once per tablet. After that, people tap their name and enter their PIN.</p>
+            <button className="btn-ghost w-full text-xs" onClick={() => { setUsePassword(false); setMsg(null); }}>Use a pairing code instead</button>
           </>
         )}
         {msg && <p className="text-sm font-semibold text-out">{msg}</p>}
+        </>)}
       </div>
       {/127\.0\.0\.1:54321|localhost:54321/.test(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '') && (
         <p className="mt-4 text-center text-xs text-muted">Local test server: codes are not emailed. They show at{' '}

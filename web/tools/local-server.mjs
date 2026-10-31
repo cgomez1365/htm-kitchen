@@ -11,6 +11,8 @@
  *                                    request.jwt.claim.sub), so RLS and the doors decide, as on Supabase
  *   /auth/v1/otp, /verify, /token, /user, /logout - a test-only sign-in. Email codes are NOT
  *                                    emailed: they print here and show at http://127.0.0.1:54321/local
+ *   /auth/v1/admin/users           - what the server routes use to make sign-ins, with the local
+ *                                    service key (SUPABASE_SERVICE_ROLE_KEY=local-test-service-key)
  *
  * What it is not: Supabase. It is for testing on this Mac only. Signatures on its tokens are
  * not checked (it looks tokens up in its own memory), and it listens on 127.0.0.1 only.
@@ -30,6 +32,8 @@ const ROOT = path.resolve(HERE, '..');
 const MIG = path.resolve(ROOT, '../supabase/migrations');
 const DATA = path.join(ROOT, '.local-db');
 const PORT = Number(process.env.HK_LOCAL_PORT ?? 54321);
+const SERVICE_KEY = 'local-test-service-key';
+const SERVICE = Symbol('service_role');
 const args = process.argv.slice(2);
 
 if (args.includes('--reset')) fs.rmSync(DATA, { recursive: true, force: true });
@@ -78,8 +82,11 @@ const userJson = (u) => ({ id: u.id, aud: 'authenticated', role: 'authenticated'
 async function userByEmail(email) {
   return (await db.query('select id::text, email from auth.users where lower(email) = lower($1)', [String(email ?? '').trim()])).rows[0];
 }
+const bearer = (req) => (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+// The caller of an rpc: the service role (server routes only), a signed-in user, or nobody.
+const callerOf = (req) => (bearer(req) === SERVICE_KEY ? SERVICE : userFromBearer(req));
 function userFromBearer(req) {
-  const tok = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  const tok = bearer(req);
   const s = sessions.get(tok);
   if (!s || s.exp < Date.now() / 1000) return null;
   return s;
@@ -121,8 +128,8 @@ async function rpc(fn, body, user) {
     : (meta.tt === 'c' || meta.rt === 'record') ? `select to_jsonb(r) as v from ${call} r`
     : `select to_jsonb(${call}) as v`;
   return serial(() => db.transaction(async (tx) => {
-    await tx.exec(`set local role ${user ? 'authenticated' : 'anon'}`);
-    await tx.query(`select set_config('request.jwt.claim.sub', $1, true)`, [user?.id ?? '']);
+    await tx.exec(`set local role ${user === SERVICE ? 'service_role' : user ? 'authenticated' : 'anon'}`);
+    await tx.query(`select set_config('request.jwt.claim.sub', $1, true)`, [user === SERVICE ? '' : user?.id ?? '']);
     return (await tx.query(sql)).rows[0]?.v ?? null;
   }));
 }
@@ -151,7 +158,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   try {
     if (url.pathname.startsWith('/rest/v1/rpc/')) {
-      const out = await rpc(url.pathname.slice('/rest/v1/rpc/'.length), req.method === 'GET' ? Object.fromEntries(url.searchParams) : await readBody(req), userFromBearer(req));
+      const out = await rpc(url.pathname.slice('/rest/v1/rpc/'.length), req.method === 'GET' ? Object.fromEntries(url.searchParams) : await readBody(req), callerOf(req));
       return send(res, 200, out, origin);
     }
     if (url.pathname === '/auth/v1/otp') {
@@ -186,6 +193,28 @@ const server = http.createServer(async (req, res) => {
       }
       return send(res, 400, { msg: 'unsupported grant_type' }, origin);
     }
+    if (url.pathname.startsWith('/auth/v1/admin/users')) {
+      if (callerOf(req) !== SERVICE) return send(res, 401, { code: 'not_admin', error_code: 'not_admin', msg: 'User not allowed' }, origin);
+      const uid = url.pathname.split('/')[5];
+      if (req.method === 'POST' && !uid) {
+        const b = await readBody(req), email = String(b.email ?? '').trim().toLowerCase();
+        if (await userByEmail(email)) return send(res, 422, { code: 'email_exists', error_code: 'email_exists', msg: 'A user with this email address has already been registered' }, origin);
+        return send(res, 200, userJson(await addUser(email, b.password)), origin);
+      }
+      const u = uid && (await db.query('select id::text, email from auth.users where id::text = $1', [uid])).rows[0];
+      if (!u) return send(res, 404, { code: 'user_not_found', error_code: 'user_not_found', msg: 'User not found' }, origin);
+      if (req.method === 'PUT') {
+        const b = await readBody(req);
+        if (b.password) { passwords[u.id] = crypto.createHash('sha256').update(String(b.password)).digest('hex'); fs.writeFileSync(PASSWORDS_FILE, JSON.stringify(passwords)); }
+        return send(res, 200, userJson(u), origin);
+      }
+      if (req.method === 'DELETE') {
+        await db.query('delete from auth.users where id::text = $1', [uid]);
+        delete passwords[u.id]; fs.writeFileSync(PASSWORDS_FILE, JSON.stringify(passwords));
+        return send(res, 200, userJson(u), origin);
+      }
+      return send(res, 405, { msg: 'Method not allowed' }, origin);
+    }
     if (url.pathname === '/auth/v1/user') {
       const u = userFromBearer(req);
       return u ? send(res, 200, userJson(u), origin) : send(res, 401, { code: 'bad_jwt', msg: 'invalid JWT' }, origin);
@@ -202,7 +231,7 @@ const server = http.createServer(async (req, res) => {
         <h1>Hope Kitchen — local test server</h1><p style="color:#a0a9b0">Not Supabase. Codes are not emailed; they appear here (refreshes every 5 s).</p>
         <h2>Sign-in codes</h2>${codes.length ? codes.slice(0, 10).map((c) => `<p><b style="font:700 28px ui-monospace;color:#f5a524">${c.code}</b> &nbsp; ${c.email} &nbsp; <span style="color:#a0a9b0">${new Date(c.at).toLocaleTimeString()}</span></p>`).join('') : '<p style="color:#a0a9b0">None yet. Ask for one on the Manager tab.</p>'}
         <h2>Sign-ins on this test server</h2><table cellpadding=6>${users.map((u) => `<tr><td>${u.email}</td><td>${u.who}</td><td style="color:#a0a9b0">${u.role}</td></tr>`).join('')}</table>
-        <p style="color:#a0a9b0">Tablets sign in with password <b>kitchen</b>. People on a tablet: James Carter PIN 1357, Lee Park PIN 2468, Ana Ruiz PIN 1122.</p></body>`);
+        <p style="color:#a0a9b0">Demo tablets sign in with password <b>kitchen</b>; tablets added in Admin pair with the code the Director's screen shows. People on a tablet: James Carter PIN 1357, Lee Park PIN 2468, Ana Ruiz PIN 1122.</p></body>`);
     }
     return send(res, 404, { message: 'Not found on the local test server' }, origin);
   } catch (e) {

@@ -7,7 +7,7 @@
  */
 import { browserClient, isPreview } from './supabase-browser';
 import { preview } from './preview';
-import type { DoorResult, FeedRow, Item, ItemDetail, Lookup, RosterPerson, Who } from './types';
+import type { AdminLocation, Category, DoorResult, FeedRow, Item, ItemDetail, Lookup, Pairing, Person, RosterPerson, Tablet, Who } from './types';
 import type { Role } from './roles';
 
 export class NetworkError extends Error {}
@@ -32,6 +32,19 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
 }
 
 const one = <T>(rows: T | T[]): T => (Array.isArray(rows) ? rows[0] : rows);
+
+// This app's own server routes (sign-ins and pairing need the service key, which only the server holds).
+async function post<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch (e) {
+    throw new NetworkError(`No answer from the server. ${(e as Error).message}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string }).message ?? `The server answered ${res.status}.`);
+  return data as T;
+}
 
 export const api = {
   whoami: () => rpc<Who>('whoami'),
@@ -66,4 +79,20 @@ export const api = {
       p_id: a.id, p_token: a.token, p_at: a.at, p_item: a.item, p_location: a.location, p_counted: a.counted, p_note: null })),
   undo: async (a: { id: string; token: string | null; at: string; target: string }) =>
     one(await rpc<DoorResult[] | DoorResult>('undo_move', { p_id: a.id, p_token: a.token, p_at: a.at, p_target: a.target })),
+
+  // Admin (0007). People and tablets: Director. Locations and categories: Inventory Manager or Director.
+  people: () => rpc<Person[]>('people_list'),
+  savePerson: (p: Record<string, unknown>) => rpc<string>('save_staff', { p }),
+  unlockPin: (staffId: string) => rpc<boolean>('unlock_pin', { p_staff: staffId }),
+  tablets: () => rpc<Tablet[]>('tablet_list'),
+  saveTablet: (p: Record<string, unknown>) => rpc<string>('save_device', { p }),
+  startPairing: (deviceId: string) => rpc<Pairing>('start_pairing', { p_device: deviceId }),
+  allLocations: () => rpc<AdminLocation[]>('location_list'),
+  saveLocation: (p: Record<string, unknown>) => rpc<string>('save_location', { p }),
+  categories: () => rpc<Category[]>('category_list'),
+  categoryNames: () => rpc<string[]>('category_names'),
+  saveCategory: (p: Record<string, unknown>) => rpc<string>('save_category', { p }),
+  addTablet: (name: string, locations: string[]) => post<Pairing>('/api/admin/accounts', { kind: 'tablet', name, locations }),
+  ensureManagerSignIn: (email: string) => post<{ email: string; created: boolean }>('/api/admin/accounts', { kind: 'manager', email }),
+  pair: (code: string) => post<{ email: string; password: string }>('/api/pair', { code }),
 };

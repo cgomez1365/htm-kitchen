@@ -15,8 +15,14 @@ import { num, type FeedRow, type Item, type ItemDetail } from '@/lib/types';
 
 const PAGE = 50;
 const STATES: [string, string][] = [['active', 'Active'], ['attention', 'Low or out'], ['out', 'Out'], ['inactive', 'Inactive'], ['all', 'All']];
-const CATS = ['Dry Goods', 'Produce', 'Proteins', 'Dairy', 'Frozen', 'Beverages', 'Bakery', 'Cleaning', 'Paper & Disposables', 'Equipment', 'Donation', 'Other'];
+// The seeded list, used only until category_names() answers (and in preview).
+const SEEDED = ['Dry Goods', 'Produce', 'Proteins', 'Dairy', 'Frozen', 'Beverages', 'Bakery', 'Cleaning', 'Paper & Disposables', 'Equipment', 'Donation', 'Other'];
 const UNITS = ['units', 'pcs', 'lbs', 'oz', 'kg', 'gallons', 'liters', 'cases', 'boxes', 'bags', 'dozens', 'cans', 'trays', 'packs'];
+function useCategories() {
+  const [cats, setCats] = useState<string[]>(SEEDED);
+  useEffect(() => { api.categoryNames().then((c) => c?.length && setCats(c)).catch(() => { /* keep the seeded list */ }); }, []);
+  return cats;
+}
 const fmt = (v: unknown) => num(v).toLocaleString(undefined, { maximumFractionDigits: 3 });
 const money = (v: unknown) => '$' + num(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const state = (it: Item): [string, string] => {
@@ -38,6 +44,7 @@ function ItemsScreen() {
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const cats = useCategories();
 
   const load = useCallback(() => {
     if (!loc) return;
@@ -56,7 +63,7 @@ function ItemsScreen() {
       <div className="mb-3 flex flex-wrap gap-2">
         <input className="field max-w-xs" placeholder="Search name, SKU, barcode, supplier" value={q} onChange={(e) => { setQ(e.target.value); setOffset(0); }} />
         <select className="field w-auto" value={cat} onChange={(e) => { setCat(e.target.value); setOffset(0); }}>
-          <option value="">All categories</option>{CATS.map((c) => <option key={c}>{c}</option>)}</select>
+          <option value="">All categories</option>{cats.map((c) => <option key={c}>{c}</option>)}</select>
         <div className="flex gap-1 rounded-xl bg-surface2 p-1">{STATES.map(([k, l]) => (
           <button key={k} onClick={() => { setSt(k); setOffset(0); }} className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${st === k ? 'bg-surface shadow-sm' : 'text-muted'}`}>{l}</button>))}</div>
         <label className="flex items-center gap-2 text-sm font-semibold text-muted"><input type="checkbox" checked={here} onChange={(e) => { setHere(e.target.checked); setOffset(0); }} /> Only stocked here</label>
@@ -166,6 +173,7 @@ function ItemDrawer({ id, onClose, canEdit }: { id: string; onClose: () => void;
 function NewItem({ locationId, onClose }: { locationId: string | null; onClose: (id?: string) => void }) {
   const [f, setF] = useState<Record<string, string>>({ name: '', category: 'Dry Goods', unit: 'units', sku: '', opening: '', min_level: '', par_level: '', price: '', supplier: '', spot: '', barcode: '' });
   const [err, setErr] = useState<string | null>(null);
+  const cats = useCategories();
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
   useEffect(() => { api.nextSku(f.category).then((s) => setF((x) => ({ ...x, sku: s ?? '' }))).catch(() => {}); }, [f.category]);
   const save = async () => {
@@ -180,7 +188,7 @@ function NewItem({ locationId, onClose }: { locationId: string | null; onClose: 
         <p className="text-sm text-muted">A SKU and a printable QR + barcode label are made for every new item.</p>
         {field('name', 'Name', { required: true })}
         <div className="grid grid-cols-2 gap-3">
-          <label className="block"><span className="label-sm">Category</span><select className="field mt-1" value={f.category} onChange={set('category')}>{CATS.map((c) => <option key={c}>{c}</option>)}</select></label>
+          <label className="block"><span className="label-sm">Category</span><select className="field mt-1" value={f.category} onChange={set('category')}>{cats.map((c) => <option key={c}>{c}</option>)}</select></label>
           <label className="block"><span className="label-sm">Unit</span><select className="field mt-1" value={f.unit} onChange={set('unit')}>{UNITS.map((u) => <option key={u}>{u}</option>)}</select></label>
         </div>
         <div className="grid grid-cols-2 gap-3">{field('sku', 'SKU (made for you)')}{field('opening', 'Opening count here', { inputMode: 'decimal' })}</div>

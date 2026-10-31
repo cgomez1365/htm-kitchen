@@ -43,3 +43,16 @@ export interface RosterPerson { id: string; display_name: string; role: Role; ha
 export interface Actor { token: string; staffId: string; name: string; role: Role; expiresAt: string }
 
 export type ScanKind = 'receive' | 'issue' | 'return' | 'transfer' | 'count';
+
+// ------------------------------------------------------------ Admin (0007) --
+export interface Person {
+  id: string; display_name: string; role: Role; email: string | null; active: boolean; linked: boolean; is_me: boolean;
+  has_pin: boolean; pin_set_at: string | null; locked: boolean; on_tablet: boolean; last_scan: string | null;
+}
+export interface Tablet {
+  id: string; name: string; active: boolean; email: string | null; locations: string[]; last_seen: string | null;
+  people_on: number; pairing_until: string | null; paired_at: string | null;
+}
+export interface AdminLocation { id: string; name: string; kind: Location['kind']; active: boolean; stocked: number; tablets: number }
+export interface Category { name: string; prefix: string; active: boolean; items: number; next_sku: string }
+export interface Pairing { code: string; expires_at: string; device_id?: string }

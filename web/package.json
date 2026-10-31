@@ -14,7 +14,7 @@
     "verify": "npm run test && npm run build",
     "dev:preview": "NEXT_PUBLIC_HK_PREVIEW=1 next dev -H 127.0.0.1 -p 3217",
     "local:db": "node tools/local-server.mjs",
-    "dev:local": "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=local-test-anon-key next dev -H 127.0.0.1 -p 3218"
+    "dev:local": "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 NEXT_PUBLIC_SUPABASE_ANON_KEY=local-test-anon-key SUPABASE_SERVICE_ROLE_KEY=local-test-service-key next dev -H 127.0.0.1 -p 3218"
   },
   "dependencies": {
     "@supabase/ssr": "0.5.2",

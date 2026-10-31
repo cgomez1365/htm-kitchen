@@ -2,7 +2,7 @@
 /**
  * The frame every working screen sits in: who this is (the tablet, or a manager), where
  * they are working, how many scans are still waiting for signal, and the way between
- * Scan and Items. It loads whoami() once and hands it down; a stranger is sent to /login.
+ * Scan, Items and (for managers) Admin. It loads whoami() once and hands it down; a stranger is sent to /login.
  */
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -63,7 +63,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <div className="leading-tight"><div className="font-bold">Hope Kitchen</div>
               <div className="text-xs text-muted">{who.device ? who.device.name : who.manager?.display_name}{isPreview() ? ' · preview' : ''}</div></div>
           </div>
-          <nav className="flex gap-1">{tab('/scan', 'Scan')}{tab('/items', 'Items')}</nav>
+          <nav className="flex gap-1">{tab('/scan', 'Scan')}{tab('/items', 'Items')}{who.manager && tab('/admin', 'Admin')}</nav>
           <div className="ml-auto flex items-center gap-2">
             {waiting > 0 && <span className="pill bg-warn/15 text-warn" title="Saved on this device; they send on their own">{waiting} waiting for signal</span>}
             {refused > 0 && <Link href="/scan" className="pill bg-out/15 text-out">{refused} refused</Link>}
