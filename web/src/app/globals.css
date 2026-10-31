@@ -1,0 +1,40 @@
+/* Hope Kitchen — the Mac app's palette: warm paper by day, charcoal by night, saffron the one accent. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 245 242 236; --surface: 255 255 255; --surface-2: 240 236 228; --line: 227 221 210;
+  --ink: 28 31 33; --muted: 95 103 109; --accent: 232 147 12;
+  --in: 29 138 78; --out: 201 57 42; --warn: 168 100 0; --info: 37 99 196;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: 17 20 22; --surface: 24 28 31; --surface-2: 31 36 40; --line: 42 48 53;
+    --ink: 236 239 241; --muted: 160 169 176; --accent: 245 165 36;
+    --in: 60 207 130; --out: 255 107 91; --warn: 245 183 74; --info: 106 168 255;
+    color-scheme: dark;
+  }
+}
+
+html, body { background: rgb(var(--bg)); color: rgb(var(--ink)); }
+body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; -webkit-font-smoothing: antialiased; }
+
+@layer components {
+  .card { @apply rounded-2xl border border-line bg-surface p-4 shadow-sm; }
+  .field { @apply w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-accent; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-2.5 font-semibold text-ink active:scale-[.98] disabled:opacity-40; }
+  .btn-primary { @apply btn border-transparent bg-accent text-[#1a1204]; }
+  .btn-ghost { @apply btn border-transparent bg-transparent text-muted; }
+  .pill { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .label-sm { @apply text-xs font-semibold uppercase tracking-wide text-muted; }
+}
+
+/* Print only the label, at its real size, from the item drawer. */
+@media print {
+  body * { visibility: hidden !important; }
+  .hk-label, .hk-label * { visibility: visible !important; }
+  .hk-label { position: absolute; left: 0; top: 0; border: 1px solid #999 !important; }
+}
