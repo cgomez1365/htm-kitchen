@@ -279,6 +279,9 @@ check((await rows(TAB, `select * from category_names() n`)).some((r) => r.n === 
 check((await rows(STRAY, `select * from category_names() n`)).length === 0, 'a stranger sees no categories');
 
 console.log('\n11. Version');
+const pinned = await rows(undefined, `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proconfig @> array['search_path=public']`);
+check(pinned.length === 0, 'no function pins search_path to public alone (Supabase keeps pgcrypto in "extensions")', pinned.map((r) => r.proname).join(', '));
 check((await one(undefined, `select hk_schema_version() as v`)).v === SCHEMA_VERSION, `schema version is ${SCHEMA_VERSION}`);
 
 // The role table exists twice (has_perm in SQL, PERMS in web/src/lib/roles.ts): they must agree (FQC's LADDER trap).

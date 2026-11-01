@@ -1,6 +1,6 @@
 /**
  * The handful of objects Supabase provides that a bare Postgres does not:
- * auth.uid(), auth.users, the storage schema, and the three roles. Shared by
+ * auth.uid(), auth.users, the storage schema, the three roles, and pgcrypto in schema extensions. Shared by
  * web/tools/test-sql.mjs (copied from FQC 2026-10-29), so a restore rehearsal
  * stands the schema up exactly the way the rule tests do.
  */
@@ -12,6 +12,11 @@ create schema auth;
 create table auth.users (id uuid primary key, email text);
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+-- Supabase keeps pgcrypto (crypt, gen_salt, digest, gen_random_bytes) in schema "extensions",
+-- not "public": a function with search_path = public cannot see it there (found 2026-10-31).
+create schema extensions;
+create extension pgcrypto schema extensions;
+grant usage on schema extensions to anon, authenticated, service_role;
 create schema storage;
 create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
 create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid, owner_id text, created_at timestamptz not null default now());
