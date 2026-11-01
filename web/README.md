@@ -1,7 +1,7 @@
 # Hope Kitchen web (pilot)
 
 The web version of Hope Kitchen: Next.js 15 + Supabase on Vercel, built the way FQC is.
-The plan and the reasons are in `../docs/WEB_PLAN.md`. The database is `../supabase/migrations/` (0001–0008). Going live: `../docs/GO_LIVE.md`.
+The plan and the reasons are in `../docs/WEB_PLAN.md`. The database is `../supabase/migrations/` (0001–0009), also as one editor-safe file, `../supabase/master.sql`, with a re-runnable `../supabase/security_check.sql`. Going live: `../docs/GO_LIVE.md`.
 
 ## What the pilot does
 
@@ -27,6 +27,7 @@ npm run typecheck
 npm run build
 npm run dev:preview   # every screen with invented data and no sign-in, on http://127.0.0.1:3217 (preview PIN 1357)
 npm run db:apply      # the live database: back up, then apply new migrations (--dry first; SUPABASE_DB_URL in .env.local)
+npm run sql:master    # rebuild supabase/master.sql after changing a migration (test:sql fails if it is stale)
 ```
 
 ### Local test, no Supabase project (CEO, 2026-10-29)

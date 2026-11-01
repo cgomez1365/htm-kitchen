@@ -278,7 +278,68 @@ check((await one(INV, `select category_list() as r`)).r.find((c) => c.name === '
 check((await rows(TAB, `select * from category_names() n`)).some((r) => r.n === 'Snacks'), 'a tablet sees the category names for Items');
 check((await rows(STRAY, `select * from category_names() n`)).length === 0, 'a stranger sees no categories');
 
-console.log('\n11. Version');
+console.log('\n12. Input sanitation (0009)');
+await refuses('a name with a hidden right-to-left override is refused', DIR, `select save_staff($1)`, [JSON.stringify({ display_name: 'Ann‮eoj', role: 'staff' })]);
+await refuses('a name with a control character is refused', DIR, `select save_staff($1)`, [JSON.stringify({ display_name: 'Bell\u0007', role: 'staff' })]);
+await refuses('a zero-width space in a location name is refused', INV, `select save_location($1)`, [JSON.stringify({ name: 'Walk​in' })]);
+await refuses('a barcode with a space is refused', DIR, `select add_code($1, '1234 5678', 1, null)`, [saltId]);
+await refuses('a note with an escape character is refused', INV, `select * from record_move($1,null,$2,$3,$4,'receive',1,null,$5,null)`, [uid(), now(), saltId, MAIN, 'ok\u001b[31m']);
+check(!(await move(INV, null, saltId, MAIN, 'receive', 1, { note: 'Two lines\nof note\twith a tab' })).refused, 'a note keeps its line breaks and tabs');
+await refuses('a 121-character item name is refused', INV, `select save_item($1)`, [JSON.stringify({ name: 'x'.repeat(121), category: 'Dry Goods', unit: 'pcs' })]);
+
+console.log('\n13. Security self-check and master.sql');
+const SUPA = path.resolve(HERE, '../../supabase');
+const SEC = fs.readFileSync(path.join(SUPA, 'security_check.sql'), 'utf8');
+await db.exec(`reset role;`);
+try { await db.exec(SEC); ok('the security check passes on the migrated database'); } catch (e) { bad(`the security check failed: ${e.message}`); }
+async function holes(label, plant, expect) {
+  await db.exec(`begin; ${plant}`);
+  try { await db.exec(SEC); bad(`${label}  — it was MISSED`); }
+  catch (e) { check(expect.every((x) => e.message.includes(x)), label, e.message.slice(0, 160)); }
+  await db.exec(`rollback`);
+}
+await holes('it catches a helper opened to signed-out visitors', `grant execute on function write_audit(uuid,uuid,text,text,text,jsonb) to anon;`, ['3. signed-out visitors can run write_audit']);
+await holes('it catches RLS switched off, a write policy, and a direct insert grant',
+  `alter table items disable row level security; create policy sneaky on items for insert to authenticated with check (true); grant insert on items to authenticated;`,
+  ['1. RLS is off on table items', '2. policy sneaky on items allows INSERT', '6. authenticated can INSERT table items']);
+await holes('it catches PIN hashes made readable, and a door pinned to public', `grant select on staff_pins to authenticated; alter function set_pin(uuid, text) set search_path = public;`,
+  ['7. authenticated can read staff_pins', '8. privileged set_pin(uuid,text) has search_path search_path=public']);
+
+const { buildMaster, naiveSplit, MASTER } = await import('./build-master-sql.mjs');
+const master = buildMaster();
+check(fs.existsSync(MASTER) && fs.readFileSync(MASTER, 'utf8') === master, 'supabase/master.sql is up to date (npm run sql:master)');
+const fresh = async (stubs = true) => { const d = new PGlite({ extensions: { pgcrypto } }); if (stubs) await d.exec(STUBS); return d; };
+const m1 = await fresh();
+const pieces = naiveSplit(master);
+let broke = null;
+for (const piece of pieces) { try { await m1.exec(piece); } catch (e) { broke = `${e.message}  IN: ${piece.slice(0, 90).replace(/\s+/g, ' ')}`; break; } }
+check(!broke, `master.sql survives the worst editor split (${pieces.length} pieces, run one at a time)`, broke ?? '');
+check((await m1.query(`select hk_schema_version() as v`)).rows[0]?.v === SCHEMA_VERSION, `master.sql builds schema ${SCHEMA_VERSION}`);
+const fingerprint = async (d) => (await d.query(`select md5(string_agg(x, '|' order by x)) as f from (
+  select 'T:' || c.relname || ':' || c.relkind::text || ':' || c.relrowsecurity::text as x from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind in ('r','v')
+  union all select 'F:' || p.oid::regprocedure::text || ':' || md5(p.prosrc) || ':' || p.prosecdef::text || ':' || coalesce(array_to_string(p.proconfig, ','), '') || ':' || coalesce(array_to_string(p.proacl, ','), '')
+    from pg_proc p where p.pronamespace = 'public'::regnamespace
+  union all select 'P:' || tablename || ':' || policyname || ':' || cmd || ':' || coalesce(qual, '') from pg_policies where schemaname = 'public'
+  union all select 'K:' || conrelid::regclass::text || ':' || conname || ':' || pg_get_constraintdef(oid) from pg_constraint where connamespace = 'public'::regnamespace
+  union all select 'G:' || tgrelid::regclass::text || ':' || tgname from pg_trigger where not tgisinternal and tgrelid::regclass::text not like 'auth.%'
+  union all select 'A:' || c.relname || ':' || coalesce(array_to_string(c.relacl, ','), '') from pg_class c where c.relnamespace = 'public'::regnamespace and c.relkind = 'r') s`)).rows[0].f;
+const m0 = await fresh();
+for (const f of files) await m0.exec(fs.readFileSync(path.join(MIG, f), 'utf8'));
+check(await fingerprint(m1) === await fingerprint(m0), 'master.sql builds exactly what the migrations build (tables, functions, policies, constraints, triggers, grants)');
+try { await m1.exec(master); bad('master.sql ran twice'); }
+catch (e) { check(/already installed/.test(e.message), 'master.sql refuses a project that already has Hope Kitchen', e.message.slice(0, 90)); }
+await m1.exec('rollback').catch(() => {});
+const m2 = await fresh();
+await m2.exec(`create table sites (id int); create table inspections (id int);`);
+try { await m2.exec(master); bad('master.sql ran on somebody else\'s project'); }
+catch (e) { check(/not Hope Kitchen/.test(e.message), 'master.sql refuses a project with other tables (like FQC\'s)', e.message.slice(0, 90)); }
+await m2.exec('rollback').catch(() => {});
+check((await m2.query(`select string_agg(tablename, ',' order by tablename) as t from pg_tables where schemaname = 'public'`)).rows[0].t === 'inspections,sites', '...and leaves it exactly as it was');
+const m3 = await fresh(false);
+try { await m3.exec(master); bad('master.sql ran outside Supabase'); }
+catch (e) { check(/not a Supabase project/.test(e.message), 'master.sql refuses a database that is not Supabase', e.message.slice(0, 90)); }
+
+console.log('\n14. Version');
 const pinned = await rows(undefined, `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proconfig @> array['search_path=public']`);
 check(pinned.length === 0, 'no function pins search_path to public alone (Supabase keeps pgcrypto in "extensions")', pinned.map((r) => r.proname).join(', '));

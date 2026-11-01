@@ -26,6 +26,10 @@ async function rpc<T>(fn: string, args: Record<string, unknown> = {}): Promise<T
     if (!error.code || /^(08|53|57|58|PGRST00)/.test(error.code) || /fetch|network/i.test(error.message)) {
       throw new NetworkError(error.message);
     }
+    // 0009's backstop: text with hidden characters or too long. Say it plainly, not as a constraint name.
+    if (error.code === '23514' && /_clean"?$|_clean\b/.test(error.message)) {
+      throw new Error('Some of that text is too long or has hidden characters the system does not accept. Retype it and try again.');
+    }
     throw new Error(error.message);
   }
   return data as T;
