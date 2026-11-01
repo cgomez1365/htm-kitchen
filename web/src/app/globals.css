@@ -1,4 +1,5 @@
-/* Hope Kitchen — the Mac app's palette: warm paper by day, charcoal by night, saffron the one accent. */
+/* Hope Kitchen — the Mac app's palette: warm paper by day, charcoal by night, saffron the one accent.
+   Violet is a tint, not a second accent (CEO 2026-11-01): a thin frame around the screen and the button hover. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,6 +8,7 @@
   --bg: 245 242 236; --surface: 255 255 255; --surface-2: 240 236 228; --line: 227 221 210;
   --ink: 28 31 33; --muted: 95 103 109; --accent: 232 147 12;
   --in: 29 138 78; --out: 201 57 42; --warn: 168 100 0; --info: 37 99 196;
+  --violet: 124 82 230;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -14,12 +16,30 @@
     --bg: 17 20 22; --surface: 24 28 31; --surface-2: 31 36 40; --line: 42 48 53;
     --ink: 236 239 241; --muted: 160 169 176; --accent: 245 165 36;
     --in: 60 207 130; --out: 255 107 91; --warn: 245 183 74; --info: 106 168 255;
+    --violet: 167 139 250;
     color-scheme: dark;
   }
 }
 
 html, body { background: rgb(var(--bg)); color: rgb(var(--ink)); }
 body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; -webkit-font-smoothing: antialiased; }
+
+/* The violet frame: drawn over the page, never in the way of a tap. */
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: 60; pointer-events: none;
+  border: 3px solid rgb(var(--violet) / .45);
+}
+
+/* Hover only where there is a mouse: on an iPad a tap would leave the button stuck violet. */
+@media (hover: hover) {
+  .btn:not(:disabled):hover, button.card:not(:disabled):hover, a.card:hover {
+    border-color: rgb(var(--violet) / .7); box-shadow: 0 0 0 3px rgb(var(--violet) / .18);
+  }
+  .btn-primary:not(:disabled):hover { border-color: rgb(var(--violet)); }
+  .btn-ghost:not(:disabled):hover { color: rgb(var(--violet)); box-shadow: none; }
+  select.field:hover { border-color: rgb(var(--violet) / .7); }
+  a[href]:not(.card):not(.btn):not(.btn-primary):hover { color: rgb(var(--violet)); }
+}
 
 @layer components {
   .card { @apply rounded-2xl border border-line bg-surface p-4 shadow-sm; }
@@ -35,6 +55,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica
 /* Print only the label, at its real size, from the item drawer. */
 @media print {
   body * { visibility: hidden !important; }
+  body::after { display: none; }
   .hk-label, .hk-label * { visibility: visible !important; }
   .hk-label { position: absolute; left: 0; top: 0; border: 1px solid #999 !important; }
 }

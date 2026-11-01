@@ -11,6 +11,7 @@ const config: Config = {
         line: 'rgb(var(--line) / <alpha-value>)', ink: 'rgb(var(--ink) / <alpha-value>)', muted: 'rgb(var(--muted) / <alpha-value>)',
         accent: 'rgb(var(--accent) / <alpha-value>)', inc: 'rgb(var(--in) / <alpha-value>)', out: 'rgb(var(--out) / <alpha-value>)',
         warn: 'rgb(var(--warn) / <alpha-value>)', info: 'rgb(var(--info) / <alpha-value>)',
+        violet: 'rgb(var(--violet) / <alpha-value>)',
       },
       fontFamily: { mono: ['ui-monospace', 'SF Mono', 'Menlo', 'monospace'] },
     },
